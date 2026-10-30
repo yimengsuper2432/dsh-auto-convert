@@ -1,122 +1,143 @@
-// 自检：不支持格式能转、超大图能压、小图和普通文件别乱碰。
-// 跑法：node test.mjs
 import fs from "node:fs";
-import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { __test } from "./lib/index.js";
+import assert from "node:assert/strict";
+import { sniff, rewrite, loadJimp, convert } from "./lib/index.js";
 
-const { sniff, rewrite, loadJimp } = __test;
 const Jimp = loadJimp();
-const dir = path.join(os.tmpdir(), "dsh-auto-convert-test-" + process.pid);
-await fsp.mkdir(dir, { recursive: true });
+const dir = path.join(os.tmpdir(), "dac-test-" + process.pid);
+fs.rmSync(dir, { recursive: true, force: true });
+fs.mkdirSync(dir, { recursive: true });
+const at = (n) => path.join(dir, n);
+const write = (file, img) => new Promise((res, rej) => img.write(file, (e) => (e ? rej(e) : res())));
 
-let failed = 0;
-function check(label, ok, detail) {
-  if (ok) console.log("  ok   " + label);
-  else {
-    failed++;
-    console.log("  FAIL " + label + (detail ? " :: " + detail : ""));
+// 3000x2000 纯色 PNG：字节很小但长边超标，只有真解码才看得出来
+const bigPng = at("big.png");
+await write(bigPng, new Jimp(3000, 2000, 0x3366ffff));
+const smallPng = at("small.png");
+await write(smallPng, new Jimp(200, 150, 0xff0000ff));
+const bigJpg = at("big.jpg");
+await write(bigJpg, new Jimp(2600, 1800, 0x00ff00ff));
+// 不支持的格式：真 BMP，但读图工具本来就不吃，插件应该完全不碰
+const bmp = at("pic.bmp");
+await write(bmp, new Jimp(3000, 2000, 0x0000ffff));
+const txt = at("note.txt");
+fs.writeFileSync(txt, "hello");
+const fakeGif = at("a.gif");
+fs.writeFileSync(fakeGif, Buffer.concat([Buffer.from("GIF89a"), Buffer.alloc(20)]));
+const fakeWebp = at("a.webp");
+fs.writeFileSync(fakeWebp, Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPVP8 "), Buffer.alloc(8)]));
+
+const side = (f) => {
+  const img = new Jimp(f);
+  return Math.max(img.bitmap.width, img.bitmap.height);
+};
+
+console.log("sniff");
+assert.equal(sniff(bigPng), "png");
+assert.equal(sniff(bigJpg), "jpeg");
+assert.equal(sniff(fakeGif), "gif");
+assert.equal(sniff(fakeWebp), "webp");
+assert.equal(sniff(txt), null);
+assert.equal(sniff(bmp), null, "BMP 不再被识别——不做格式转换");
+
+console.log("big png -> shrunk");
+{
+  const { args, info } = await rewrite({ path: bigPng });
+  assert.equal(info.length, 1);
+  assert.notEqual(args.path, bigPng);
+  assert.ok(args.path.startsWith(os.tmpdir()), "产物落在临时目录");
+  assert.ok(side(args.path) <= 2048, "长边 <= 2048");
+  assert.ok(info[0].outBytes > 0);
+  // 纯色图压到 2048 后字节未必更小，但长边降下来才是关键
+}
+
+console.log("big jpeg -> shrunk");
+{
+  const { args, info } = await rewrite({ path: bigJpg });
+  assert.equal(info.length, 1);
+  assert.ok(side(args.path) <= 2048);
+}
+
+console.log("small png: untouched");
+{
+  const { args, info } = await rewrite({ path: smallPng });
+  assert.equal(info.length, 0);
+  assert.equal(args.path, smallPng);
+}
+
+console.log("unsupported / non-image: untouched");
+{
+  for (const f of [bmp, txt, at("nope.png")]) {
+    const { args, info } = await rewrite({ path: f });
+    assert.equal(info.length, 0, f);
+    assert.equal(args.path, f);
   }
 }
 
-async function make(name, w, h, color) {
-  const img = await Jimp.create(w, h, color);
-  const p = path.join(dir, name);
-  await new Promise((res, rej) => img.write(p, (e) => (e ? rej(e) : res())));
-  return p;
+console.log("nested args rewritten, prompt untouched");
+{
+  const prompt = "参考 " + bigPng + " 的构图，画成水彩";
+  const args = { prompt, source_paths: [smallPng, bigPng] };
+  const r = await rewrite(args);
+  assert.equal(r.args.prompt, prompt, "提示词里的句子不该被当路径");
+  assert.equal(r.args.source_paths[0], smallPng);
+  assert.notEqual(r.args.source_paths[1], bigPng);
+  assert.equal(r.info.length, 1);
 }
 
-const bmp = await make("big.bmp", 3000, 2000, 0x3388ffcc);
-const tif = await make("small.tif", 200, 150, 0xff8844cc);
-const png = await make("tiny.png", 64, 64, 0x2255ffcc);
-const txt = path.join(dir, "note.txt");
-await fsp.writeFile(txt, "not an image", "utf8");
-
-console.log("sniff");
-check("bmp", sniff(bmp) === "bmp", sniff(bmp));
-check("tiff", sniff(tif) === "tiff", sniff(tif));
-check("png", sniff(png) === "png", sniff(png));
-check("txt", sniff(txt) === null, String(sniff(txt)));
-
-console.log("unsupported -> supported (3000x2000 bmp)");
+console.log("force squeezes to retry side");
 {
-  const r = await rewrite({ path: bmp });
-  check("converted", r.info.length === 1, JSON.stringify(r.info));
-  const out = r.info[0]?.to;
-  check("changed arg", r.args.path === out && out !== bmp);
-  const img = await Jimp.read(out);
-  check("longest side <= 2048", Math.max(img.bitmap.width, img.bitmap.height) <= 2048, img.bitmap.width + "x" + img.bitmap.height);
-  check("smaller on disk", fs.statSync(out).size < fs.statSync(bmp).size, fs.statSync(out).size + " vs " + fs.statSync(bmp).size);
-}
-
-console.log("unsupported tiff keeps size");
-{
-  const r = await rewrite({ source_paths: [tif], prompt: "x" });
-  check("converted nested array", r.info.length === 1);
-  const img = await Jimp.read(r.args.source_paths[0]);
-  check("dims preserved", img.bitmap.width === 200 && img.bitmap.height === 150, img.bitmap.width + "x" + img.bitmap.height);
-  check("prompt untouched", r.args.prompt === "x");
-}
-
-console.log("supported + small: not touched");
-{
-  const r = await rewrite({ path: png });
-  check("no conversion", r.info.length === 0 && r.args.path === png);
-}
-
-console.log("non-image: not touched");
-{
-  const r = await rewrite({ path: txt, other: "just text" });
-  check("ignored", r.info.length === 0 && r.args.path === txt);
-}
-
-console.log("retry pass squeezes harder");
-{
-  const r = await rewrite({ path: bmp }, { maxSide: 1280, force: true });
-  check("converted", r.info.length === 1);
-  const img = await Jimp.read(r.info[0].to);
-  check("longest side <= 1280", Math.max(img.bitmap.width, img.bitmap.height) <= 1280, img.bitmap.width + "x" + img.bitmap.height);
+  const out = await convert(bigPng, { maxSide: 1280, force: true });
+  assert.ok(out);
+  assert.ok(side(out) <= 1280, "重试档长边 <= 1280");
 }
 
 console.log("source files untouched");
 {
-  check("bmp intact", sniff(bmp) === "bmp", String(sniff(bmp)));
-  check("png intact", sniff(png) === "png", String(sniff(png)));
+  const files = [bigPng, smallPng, bigJpg, bmp];
+  const before = files.map((f) => fs.statSync(f).size);
+  await rewrite(files);
+  assert.deepEqual(files.map((f) => fs.statSync(f).size), before, "原图一个字节都不动");
 }
 
 console.log("apply() 挂上钩子并按需重试");
 {
+  let handler;
+  const ctx = { on: (ev, fn) => { if (ev === "tools/execute") handler = fn; } };
   const { apply } = await import("./lib/index.js");
-  let handler = null;
-  apply({ on: (ev, fn) => { if (ev === "tools/execute") handler = fn; } });
-  check("registered tools/execute", typeof handler === "function");
+  apply(ctx);
+  assert.ok(handler, "注册了 tools/execute");
 
-  // 正常读：只跑一次，参数被换成能读的那张
-  let calls = 0;
-  const exec = { name: "read_image", argument: { path: bmp }, arguments: { path: bmp }, signal: undefined };
-  const ok = await handler(exec, async () => { calls++; return { content: [] }; });
-  check("single dispatch", calls === 1, "calls=" + calls);
-  check("args swapped", exec.arguments.path !== bmp);
-  check("result passthrough", ok && ok.content.length === 0);
+  {
+    let calls = 0;
+    const result = await handler({ name: "read_image", arguments: { path: bigPng } }, async () => {
+      calls++;
+      return { ok: true };
+    });
+    assert.deepEqual(result, { ok: true });
+    assert.equal(calls, 1, "成功时不重试");
+  }
 
-  // 读崩了：再压一轮重试
-  let calls2 = 0;
-  const exec2 = { name: "read_image", argument: { path: bmp }, arguments: { path: bmp }, signal: undefined };
-  const failed = await handler(exec2, async () => {
-    calls2++;
-    return calls2 === 1 ? { isError: true, content: [{ type: "text", text: "too big" }] } : { isError: false, content: [] };
-  });
-  check("retried once", calls2 === 2, "calls=" + calls2);
-  check("retry recovered", failed.isError === false);
+  {
+    let calls = 0;
+    const result = await handler({ name: "read_image", arguments: { path: bigPng } }, async () => {
+      calls++;
+      return calls === 1 ? { isError: true } : { ok: "retry recovered" };
+    });
+    assert.equal(calls, 2, "retried once");
+    assert.equal(result.ok, "retry recovered");
+  }
 
-  // 非图片工具的报错不许重跑
-  let calls3 = 0;
-  const exec3 = { name: "pwsh", argument: { command: "x" }, arguments: { command: "x" }, signal: undefined };
-  await handler(exec3, async () => { calls3++; return { isError: true, content: [] }; });
-  check("non-read tool not retried", calls3 === 1, "calls=" + calls3);
+  {
+    let calls = 0;
+    await handler({ name: "pwsh", arguments: { path: bigPng } }, async () => {
+      calls++;
+      return { isError: true };
+    });
+    assert.equal(calls, 1, "non-read tool not retried");
+  }
 }
 
-await fsp.rm(dir, { recursive: true, force: true });
-console.log(failed ? "FAILED " + failed : "all good");
-process.exit(failed ? 1 : 0);
+fs.rmSync(dir, { recursive: true, force: true });
+console.log("all good");
