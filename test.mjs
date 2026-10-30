@@ -18,9 +18,12 @@ const smallPng = at("small.png");
 await write(smallPng, new Jimp(200, 150, 0xff0000ff));
 const bigJpg = at("big.jpg");
 await write(bigJpg, new Jimp(2600, 1800, 0x00ff00ff));
-// 不支持的格式：真 BMP，但读图工具本来就不吃，插件应该完全不碰
+// 不支持的格式：真 BMP，读图工具不吃，插件该转成 PNG；尺寸超标就顺带缩
 const bmp = at("pic.bmp");
 await write(bmp, new Jimp(3000, 2000, 0x0000ffff));
+// 小尺寸 TIFF：没超标，只是格式不支持，应该只换格式不缩
+const tiff = at("pic.tiff");
+await write(tiff, new Jimp(800, 600, 0x123456ff));
 const txt = at("note.txt");
 fs.writeFileSync(txt, "hello");
 const fakeGif = at("a.gif");
@@ -28,8 +31,8 @@ fs.writeFileSync(fakeGif, Buffer.concat([Buffer.from("GIF89a"), Buffer.alloc(20)
 const fakeWebp = at("a.webp");
 fs.writeFileSync(fakeWebp, Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPVP8 "), Buffer.alloc(8)]));
 
-const side = (f) => {
-  const img = new Jimp(f);
+const side = async (f) => {
+  const img = await Jimp.read(f);
   return Math.max(img.bitmap.width, img.bitmap.height);
 };
 
@@ -39,7 +42,8 @@ assert.equal(sniff(bigJpg), "jpeg");
 assert.equal(sniff(fakeGif), "gif");
 assert.equal(sniff(fakeWebp), "webp");
 assert.equal(sniff(txt), null);
-assert.equal(sniff(bmp), null, "BMP 不再被识别——不做格式转换");
+assert.equal(sniff(bmp), "bmp");
+assert.equal(sniff(tiff), "tiff");
 
 console.log("big png -> shrunk");
 {
@@ -47,7 +51,7 @@ console.log("big png -> shrunk");
   assert.equal(info.length, 1);
   assert.notEqual(args.path, bigPng);
   assert.ok(args.path.startsWith(os.tmpdir()), "产物落在临时目录");
-  assert.ok(side(args.path) <= 2048, "长边 <= 2048");
+  assert.ok((await side(args.path)) <= 2048, "长边 <= 2048");
   assert.ok(info[0].outBytes > 0);
   // 纯色图压到 2048 后字节未必更小，但长边降下来才是关键
 }
@@ -56,7 +60,7 @@ console.log("big jpeg -> shrunk");
 {
   const { args, info } = await rewrite({ path: bigJpg });
   assert.equal(info.length, 1);
-  assert.ok(side(args.path) <= 2048);
+  assert.ok((await side(args.path)) <= 2048);
 }
 
 console.log("small png: untouched");
@@ -66,9 +70,24 @@ console.log("small png: untouched");
   assert.equal(args.path, smallPng);
 }
 
-console.log("unsupported / non-image: untouched");
+console.log("unsupported format -> png");
 {
-  for (const f of [bmp, txt, at("nope.png")]) {
+  const { args, info } = await rewrite({ path: bmp });
+  assert.equal(info.length, 1);
+  assert.equal(sniff(args.path), "png", "BMP 转成 PNG");
+  assert.ok(args.path.endsWith(".png"));
+  assert.ok((await side(args.path)) <= 2048, "转换时顺带降采样");
+}
+{
+  const { args, info } = await rewrite({ path: tiff });
+  assert.equal(info.length, 1, "TIFF 也要转");
+  assert.equal(sniff(args.path), "png");
+  assert.equal(await side(args.path), 800, "没超标就只换格式、不缩");
+}
+
+console.log("non-image: untouched");
+{
+  for (const f of [txt, at("nope.png")]) {
     const { args, info } = await rewrite({ path: f });
     assert.equal(info.length, 0, f);
     assert.equal(args.path, f);
@@ -104,7 +123,7 @@ console.log("attachment id -> local file -> shrunk path");
   assert.equal(r.info[0].from, obj);
   assert.equal(r.args.attachmentIds, undefined, "id 换成路径后不再传 id");
   assert.equal(r.args.prompt, "看看她");
-  assert.ok(side(r.args.paths[0]) <= 2048, "附件也按长边压");
+  assert.ok((await side(r.args.paths[0])) <= 2048, "附件也按长边压");
 
   const missing = await rewrite({ attachmentIds: ["sha256:" + "cd".repeat(32)] }, { attachmentsRoot: store });
   assert.deepEqual(missing.args, { attachmentIds: ["sha256:" + "cd".repeat(32)] }, "落不了地的 id 原样放行");
@@ -114,7 +133,7 @@ console.log("force squeezes to retry side");
 {
   const out = await convert(bigPng, { maxSide: 1280, force: true });
   assert.ok(out);
-  assert.ok(side(out) <= 1280, "重试档长边 <= 1280");
+  assert.ok((await side(out)) <= 1280, "重试档长边 <= 1280");
 }
 
 console.log("source files untouched");

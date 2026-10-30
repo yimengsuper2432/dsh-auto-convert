@@ -1,6 +1,6 @@
 {
   "name": "dsh-auto-convert",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "自动转换不支持的图片格式，并把超大图先降采样再交给工具——一轮对话内解决。",
