@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
-import { sniff, rewrite, loadJimp, convert } from "./lib/index.js";
+import { sniff, rewrite, loadJimp, convert, attachmentFile } from "./lib/index.js";
 
 const Jimp = loadJimp();
 const dir = path.join(os.tmpdir(), "dac-test-" + process.pid);
@@ -84,6 +84,30 @@ console.log("nested args rewritten, prompt untouched");
   assert.equal(r.args.source_paths[0], smallPng);
   assert.notEqual(r.args.source_paths[1], bigPng);
   assert.equal(r.info.length, 1);
+}
+
+console.log("attachment id -> local file -> shrunk path");
+{
+  const hex = "ab".repeat(32);
+  const store = path.join(dir, "store");
+  fs.mkdirSync(path.join(store, hex.slice(0, 2)), { recursive: true });
+  const obj = path.join(store, hex.slice(0, 2), hex);
+  fs.copyFileSync(bigPng, obj);
+  const id = "sha256:" + hex;
+
+  assert.equal(attachmentFile(id, store), obj, "id 能落到对象文件");
+  assert.equal(attachmentFile("sha256:" + "cd".repeat(32), store), null, "缺的对象不报错只返回 null");
+  assert.equal(attachmentFile("nope", store), null);
+
+  const r = await rewrite({ attachmentIds: [id], prompt: "看看她" }, { attachmentsRoot: store });
+  assert.equal(r.info.length, 1);
+  assert.equal(r.info[0].from, obj);
+  assert.equal(r.args.attachmentIds, undefined, "id 换成路径后不再传 id");
+  assert.equal(r.args.prompt, "看看她");
+  assert.ok(side(r.args.paths[0]) <= 2048, "附件也按长边压");
+
+  const missing = await rewrite({ attachmentIds: ["sha256:" + "cd".repeat(32)] }, { attachmentsRoot: store });
+  assert.deepEqual(missing.args, { attachmentIds: ["sha256:" + "cd".repeat(32)] }, "落不了地的 id 原样放行");
 }
 
 console.log("force squeezes to retry side");
