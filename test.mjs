@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
-import { sniff, rewrite, loadJimp, convert, attachmentFile } from "./lib/index.js";
+import { sniff, sniffHead, rewrite, loadJimp, convert, attachmentFile, fixUpload, apply } from "./lib/index.js";
 
 const Jimp = loadJimp();
 const dir = path.join(os.tmpdir(), "dac-test-" + process.pid);
@@ -180,6 +180,47 @@ console.log("apply() 挂上钩子并按需重试");
     });
     assert.equal(calls, 1, "non-read tool not retried");
   }
+}
+
+console.log("上传入库前把类型弄对");
+{
+  const pngBuf = fs.readFileSync(bigPng);
+  const input = { data: pngBuf, mediaType: "image/webp", name: "card_788_trained.png" };
+  const dirty = await fixUpload(input);
+  assert.equal(dirty.mediaType, "image/png", "名字装错的按真实字节改标签");
+  assert.equal(dirty.data, pngBuf, "只改标签，字节一个不动");
+
+  const clean = { data: pngBuf, mediaType: "image/png" };
+  assert.equal(await fixUpload(clean), clean, "对得上就原样返回");
+
+  const toPng = await fixUpload({ data: fs.readFileSync(bmp), mediaType: "image/bmp" });
+  assert.equal(toPng.mediaType, "image/png", "BMP 转 PNG");
+  assert.equal(sniffHead(toPng.data), "png", "转出来真是 PNG");
+
+  const junk = { data: Buffer.from("hello"), mediaType: "image/png" };
+  assert.equal(await fixUpload(junk), junk, "不是图就不碰");
+}
+
+console.log("附件服务的入库口被包住");
+{
+  const store = {
+    seen: null,
+    async saveImages(inputs) {
+      this.seen = inputs;
+      return inputs.map((_, i) => "ref" + i);
+    },
+    async saveImage(input) {
+      this.seen = input;
+      return "ref";
+    },
+  };
+  const ctx = { on: () => {}, get: (n) => (n === "attachments" ? store : undefined) };
+  apply(ctx);
+  const refs = await store.saveImages([{ data: fs.readFileSync(bigPng), mediaType: "image/webp" }]);
+  assert.deepEqual(refs, ["ref0"]);
+  assert.equal(store.seen[0].mediaType, "image/png", "批量入库前就改好了");
+  await store.saveImage({ data: fs.readFileSync(bmp), mediaType: "image/bmp" });
+  assert.equal(store.seen.mediaType, "image/png", "单张入库前也转好了");
 }
 
 fs.rmSync(dir, { recursive: true, force: true });

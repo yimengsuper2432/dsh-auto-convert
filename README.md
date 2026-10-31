@@ -14,6 +14,16 @@
 
 产物放在系统临时目录，按「源文件 + mtime + 目标长边 + 输出格式」缓存，同一张图只转一次；原图一个字节都不改。
 
+## 上传那一关
+
+聊天窗口上传图片时，宿主只比对「上传时标的类型」和「真实字节」，对不上直接拒（`IMAGE_TYPE_MISMATCH`），界面上显示的就是那句「仅支持 PNG、JPG、WebP、GIF 格式的图片」——把 WebP 存成 `.png` 名字再传上去就是这么被打回的。
+
+所以插件在附件入库前也包了一层（`ctx.get("attachments")` 的 `saveImages` / `saveImage`）：
+
+1. 按字节认出真实格式，和声明的对不上 → 只改标签，字节一个不动。
+2. BMP / TIFF → 转成 PNG 再入库。
+3. 连 jimp 都解不开的（HEIC / AVIF …）原样放行，宿主照旧报它自己的错。
+
 ## 依赖
 
 复用 profile 里已装的 `jimp`（`~/.dsh/profiles/*/node_modules/jimp`），不需要额外安装。
