@@ -2,7 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
-import { sniff, sniffHead, rewrite, loadJimp, convert, attachmentFile, fixUpload, apply } from "./lib/index.js";
+import { sniff, sniffHead, rewrite, loadJimp, convert, attachmentFile, fixUpload, apply, docKind, convertDocument } from "./lib/index.js";
+
+/** 最小 docx 夹具：标题、正文、两个列表项、一张两行表格（stored zip）。 */
+const DOCX_B64 =
+  "UEsDBBQAAAAAAAAAAACRzx8FKQEAACkBAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbDw/eG1sIHZlcnNpb249IjEuMCI/PjxUeXBlcyB4bWxucz0iaHR0cDovL3NjaGVtYXMub3BlbnhtbGZvcm1hdHMub3JnL3BhY2thZ2UvMjAwNi9jb250ZW50LXR5cGVzIj48RGVmYXVsdCBFeHRlbnNpb249InhtbCIgQ29udGVudFR5cGU9ImFwcGxpY2F0aW9uL3htbCIvPjxPdmVycmlkZSBQYXJ0TmFtZT0iL3dvcmQvZG9jdW1lbnQueG1sIiBDb250ZW50VHlwZT0iYXBwbGljYXRpb24vdm5kLm9wZW54bWxmb3JtYXRzLW9mZmljZWRvY3VtZW50LndvcmRwcm9jZXNzaW5nbWwuZG9jdW1lbnQubWFpbit4bWwiLz48L1R5cGVzPlBLAwQUAAAAAAAAAAAAL/zHevUCAAD1AgAAEQAAAHdvcmQvZG9jdW1lbnQueG1sPD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9InllcyI/Pgo8dzpkb2N1bWVudCB4bWxuczp3PSJodHRwOi8vc2NoZW1hcy5vcGVueG1sZm9ybWF0cy5vcmcvd29yZHByb2Nlc3NpbmdtbC8yMDA2L21haW4iPjx3OmJvZHk+Cjx3OnA+PHc6cFByPjx3OnBTdHlsZSB3OnZhbD0iSGVhZGluZzEiLz48L3c6cFByPjx3OnI+PHc6dD7lraPluqbmiqXlkYo8L3c6dD48L3c6cj48L3c6cD4KPHc6cD48dzpyPjx3OnQ+6L+Z5piv56ys5LiA5q615q2j5paH44CCPC93OnQ+PC93OnI+PC93OnA+Cjx3OnA+PHc6cFByPjx3Om51bVByPjx3Omlsdmwgdzp2YWw9IjAiLz48L3c6bnVtUHI+PC93OnBQcj48dzpyPjx3OnQ+6KaB54K55LiAPC93OnQ+PC93OnI+PC93OnA+Cjx3OnA+PHc6cFByPjx3Om51bVByPjx3Omlsdmwgdzp2YWw9IjAiLz48L3c6bnVtUHI+PC93OnBQcj48dzpyPjx3OnQ+6KaB54K55LqMPC93OnQ+PC93OnI+PC93OnA+Cjx3OnRibD48dzp0cj48dzp0Yz48dzpwPjx3OnI+PHc6dD7ln47luII8L3c6dD48L3c6cj48L3c6cD48L3c6dGM+PHc6dGM+PHc6cD48dzpyPjx3OnQ+6ZSA6YePPC93OnQ+PC93OnI+PC93OnA+PC93OnRjPjwvdzp0cj4KPHc6dHI+PHc6dGM+PHc6cD48dzpyPjx3OnQ+5YyX5LqsPC93OnQ+PC93OnI+PC93OnA+PC93OnRjPjx3OnRjPjx3OnA+PHc6cj48dzp0PjEyODwvdzp0PjwvdzpyPjwvdzpwPjwvdzp0Yz48L3c6dHI+PC93OnRibD4KPC93OmJvZHk+PC93OmRvY3VtZW50PlBLAQIUABQAAAAAAAAAAACRzx8FKQEAACkBAAATAAAAAAAAAAAAAAAAAAAAAABbQ29udGVudF9UeXBlc10ueG1sUEsBAhQAFAAAAAAAAAAAAC/8x3r1AgAA9QIAABEAAAAAAAAAAAAAAAAAWgEAAHdvcmQvZG9jdW1lbnQueG1sUEsFBgAAAAACAAIAgAAAAH4EAAAAAA==";
 
 const Jimp = loadJimp();
 const dir = path.join(os.tmpdir(), "dac-test-" + process.pid);
@@ -221,6 +225,54 @@ console.log("附件服务的入库口被包住");
   assert.equal(store.seen[0].mediaType, "image/png", "批量入库前就改好了");
   await store.saveImage({ data: fs.readFileSync(bmp), mediaType: "image/bmp" });
   assert.equal(store.seen.mediaType, "image/png", "单张入库前也转好了");
+}
+
+console.log("文档：docx/csv/html 换成 Markdown 再交出去");
+{
+  // 最小 docx（stored zip）当夹具：标题、正文、列表、表格各一段
+  const docx = at("report.docx");
+  fs.writeFileSync(docx, Buffer.from(DOCX_B64, "base64"));
+  assert.equal(docKind(docx), "zip", "OOXML 先从字节认成 zip，再看目录");
+  const doc = await convertDocument(docx);
+  assert.ok(doc, "能转出内容");
+  assert.equal(doc.kind, "docx", "解开 zip 后是 docx");
+  const md = fs.readFileSync(doc.out, "utf8");
+  assert.match(md, /# 季度报告/, "标题层级保留");
+  assert.match(md, /- 要点一/, "列表保留");
+  assert.match(md, /\| 城市 \| 销量 \|/, "表格转成管道表格");
+  assert.match(md, /源文件：report\.docx（docx）/, "产物头部标了来源");
+
+  const again = await convertDocument(docx);
+  assert.equal(again.out, doc.out, "同一份文档只转一次（缓存命中）");
+  assert.equal(again.kind, "docx", "缓存命中也能报对类型");
+
+  const r = await rewrite({ file_path: docx }, {});
+  assert.equal(r.info.length, 1);
+  assert.equal(r.info[0].doc, true);
+  assert.ok(r.args.file_path.endsWith(".md"), "交给 read 的已经是 md");
+  assert.notEqual(r.args.file_path, docx);
+
+  const asImage = await rewrite({ path: docx }, { imageTool: true });
+  assert.equal(asImage.args.path, docx, "读图工具不该收到 md");
+
+  const csv = at("t.csv");
+  fs.writeFileSync(csv, "a,b\n1,2\n3,4\n");
+  const csvR = await rewrite({ file_path: csv }, {});
+  const csvMd = fs.readFileSync(csvR.args.file_path, "utf8");
+  assert.match(csvMd, /\| a \| b \|/, "CSV 转成表格");
+  assert.match(csvMd, /\| 3 \| 4 \|/);
+
+  const html = at("t.html");
+  fs.writeFileSync(html, "<h2>小节</h2><p>正文</p><ul><li>一</li></ul>");
+  const htmlR = await rewrite({ file_path: html }, {});
+  const htmlMd = fs.readFileSync(htmlR.args.file_path, "utf8");
+  assert.match(htmlMd, /## 小节/, "HTML 标题");
+  assert.match(htmlMd, /- 一/, "HTML 列表");
+
+  const bin = at("blob.bin");
+  fs.writeFileSync(bin, Buffer.from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]));
+  const binR = await rewrite({ file_path: bin }, {});
+  assert.equal(binR.args.file_path, bin, "认不出的二进制原样放行");
 }
 
 fs.rmSync(dir, { recursive: true, force: true });
