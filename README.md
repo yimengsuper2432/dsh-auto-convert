@@ -76,7 +76,7 @@ flowchart LR
 
 ## 它是怎么做到的
 
-1. **挂的是宿主 `tools/execute` 环绕钩子**，不是某个具体工具。`read`、`read_image`、`vision_*` 和 `run_code` 里的子调用都走同一条路，一处修好全覆盖；工具本身不知道文件被换过，它只收到一个更小、或者已经是 Markdown 的副本。
+1. **挂的是宿主 `tools/execute` 环绕钩子**，不是某个具体工具：图片对 `read_image`、`vision_*`、`read` 都生效，文档只在 `read` 拿到路径时换成 Markdown（`write`、`pwsh` 这类工具仍然收到原路径）。工具本身不知道文件被换过，它只收到一个更小、或者已经是 Markdown 的副本。
 2. **按字节认格式**（PNG / JPEG / GIF / WebP / BMP / TIFF / PDF / OOXML zip），不看扩展名——改过名的图也认得出；认不出的直接放行，不猜、不拦。
 3. **递归扫参数里的绝对路径**（对象/数组最多 5 层、一次最多 8 个文件），只处理存在、非空、真的是图的文件；`attachmentIds: ["sha256:…"]` 先换成附件库里的真实文件再走同一流程。
 4. **图片降采样**用 profile 里已经装好的 `jimp`，等比缩放，产物按「源文件 + mtime + 目标长边」缓存在系统临时目录。

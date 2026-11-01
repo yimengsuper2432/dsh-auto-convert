@@ -255,6 +255,11 @@ console.log("文档：docx/csv/html 换成 Markdown 再交出去");
   const asImage = await rewrite({ path: docx }, { imageTool: true });
   assert.equal(asImage.args.path, docx, "读图工具不该收到 md");
 
+  const asWriter = await rewrite({ file_path: docx }, { toolName: "write" });
+  assert.equal(asWriter.args.file_path, docx, "写入类工具拿到原路径，不能被换成 md");
+  const asRead = await rewrite({ file_path: docx }, { toolName: "read" });
+  assert.ok(asRead.args.file_path.endsWith(".md"), "read 才换 md");
+
   const csv = at("t.csv");
   fs.writeFileSync(csv, "a,b\n1,2\n3,4\n");
   const csvR = await rewrite({ file_path: csv }, {});

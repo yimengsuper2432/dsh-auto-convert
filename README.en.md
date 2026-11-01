@@ -40,7 +40,7 @@ A mislabeled upload (a WebP named `.png`, the usual `IMAGE_TYPE_MISMATCH`) is fi
 
 ## How it works
 
-1. **Hooked on the host `tools/execute` around-hook**, not on a single tool: `read`, `read_image`, `vision_*` and sub-calls inside `run_code` all take the same path. The tool never learns that the file was swapped.
+1. **Hooked on the host `tools/execute` around-hook**, not on a single tool: images are prepared for `read_image`, `vision_*` and `read`, while documents are swapped only for `read` (`write`, `pwsh` and friends still receive the original path). The tool never learns that the file was swapped.
 2. **Formats are detected from bytes**, not extensions — a renamed image is still recognized. Unknown bytes are passed through instead of guessed at.
 3. **Every absolute path in the arguments is rewritten** (5 levels deep, at most 8 files); `sha256:…` attachment ids are resolved to real files first.
 4. **Downscaling** uses the `jimp` already installed in the profile, keeps the aspect ratio, and caches products by source file, mtime and target edge in the system temp directory.
