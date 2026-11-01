@@ -1,8 +1,8 @@
 {
   "name": "dsh-auto-convert",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
-  "description": "把超大图先降采样、把不支持的格式转成 PNG，并在附件入库前纠正标错的图片类型——一轮对话内解决。",
+  "description": "读图、读文档之前先把文件处理成能读的样子：超大图降采样、BMP/TIFF 转 PNG、docx/xlsx/pptx/pdf/csv/html 就地转成 Markdown，一轮对话就出结论。",
   "license": "MIT",
   "author": "SugarOriginal",
   "keywords": [
@@ -10,8 +10,15 @@
     "dsh-plugin",
     "deepseek-harness",
     "image",
-    "convert",
-    "downscale"
+    "downscale",
+    "markdown",
+    "docx",
+    "xlsx",
+    "pptx",
+    "pdf",
+    "pdf-to-markdown",
+    "office",
+    "convert"
   ],
   "repository": {
     "type": "git",
@@ -20,9 +27,6 @@
   "homepage": "https://github.com/yimengsuper2432/dsh-auto-convert#readme",
   "bugs": {
     "url": "https://github.com/yimengsuper2432/dsh-auto-convert/issues"
-  },
-  "engines": {
-    "dsh": ">=0.2.0"
   },
   "main": "lib/index.js",
   "exports": {
@@ -34,10 +38,17 @@
     "lib",
     "cordis.patch.yml",
     "README.md",
+    "README.en.md",
     "LICENSE"
   ],
+  "scripts": {
+    "test": "node test.mjs"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dsh": {
     "bundle": {
