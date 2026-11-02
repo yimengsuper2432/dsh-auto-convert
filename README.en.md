@@ -76,6 +76,7 @@ Edit the constants at the top of `lib/index.js` (`MAX_SIDE`, `MAX_BYTES`, `RETRY
 - **Scanned PDFs are not OCR'd** — no text layer means the original file is passed through.
 - **Legacy Office binaries (.doc/.xls/.ppt) are not supported** — OLE2 needs a real converter.
 - **Text and structure only**: embedded images and formulas are skipped.
+- **Same-named files share one product**: two `report.docx` in different folders both map to `.dsh-convert/report.md` and the later conversion wins. Add `<workspace>/.dsh-convert/` to your project's `.gitignore`.
 - **Products stay with the workspace and are never cleaned up proactively**: downscaled images and Markdown copies live in `<workspace>/.dsh-convert/`; delete the folder if you do not want them, it is regenerated next time.
 
 ## Development

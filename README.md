@@ -127,6 +127,7 @@ dsh plugin --profile desktop add github:yimengsuper2432/dsh-auto-convert
 - **扫描件 PDF 不 OCR**：没有文字层的 PDF 转不出内容，插件会放行原文；要 OCR 得上专用插件。
 - **老 Office 二进制（.doc/.xls/.ppt）不支持**：那是 OLE2 复合文档，纯 Node 解不干净，交给工具自己报错。
 - **只搬文字与结构**：docx 里的图片、PDF 里的图表、公式都不会提取。
+- **同名文件共用产物**：不同目录下的同名文件（两份 `report.docx`）会写进同一个 `.dsh-convert/report.md`，后转的覆盖先转的。建议把 `<工作区>/.dsh-convert/` 加进项目的 `.gitignore`。
 - **产物跟着工作区走、不主动清理**：压过的图、转好的 Markdown 都留在 `<工作区>/.dsh-convert/` 里，方便翻看；不想要了整个目录删掉即可，下一轮会重新生成。
 
 ## 开发
