@@ -43,7 +43,7 @@ A mislabeled upload (a WebP named `.png`, the usual `IMAGE_TYPE_MISMATCH`) is fi
 1. **Hooked on the host `tools/execute` around-hook**, not on a single tool: images are prepared for `read_image`, `vision_*` and `read`, while documents are swapped only for `read` (`write`, `pwsh` and friends still receive the original path). The tool never learns that the file was swapped.
 2. **Formats are detected from bytes**, not extensions — a renamed image is still recognized. Unknown bytes are passed through instead of guessed at.
 3. **Every absolute path in the arguments is rewritten** (5 levels deep, at most 8 files); `sha256:…` attachment ids are resolved to real files first.
-4. **Downscaling** uses the `jimp` already installed in the profile, keeps the aspect ratio, and caches products by source file, mtime and target edge in the system temp directory.
+4. **Downscaling** uses the `jimp` already installed in the profile and keeps the aspect ratio. Products go into **`<workspace>/.dsh-convert/`** and keep the source name: a pure format change keeps the original stem (`pic.bmp` → `pic.png`), a downscale appends `_small` (`photo.jpg` → `photo_small.jpg`).
 5. **Document conversion has no dependencies**: OOXML is just a zip, unpacked with `node:zlib` and read from `document.xml` / `sheet*.xml` / `slide*.xml`; PDFs are reduced to their text layer, with ToUnicode CMaps parsed when fonts are CID-keyed. No network, no Python, no Office.
 6. **One automatic retry within the same turn**: if a downscaled image is still too large for `read_image` / `vision_*`, it is squeezed to 1280 px and run once more. Documents are never retried.
 7. **The upload gate is wrapped too**: media type is checked against the actual bytes before admission.
@@ -76,7 +76,7 @@ Edit the constants at the top of `lib/index.js` (`MAX_SIDE`, `MAX_BYTES`, `RETRY
 - **Scanned PDFs are not OCR'd** — no text layer means the original file is passed through.
 - **Legacy Office binaries (.doc/.xls/.ppt) are not supported** — OLE2 needs a real converter.
 - **Text and structure only**: embedded images and formulas are skipped.
-- **Temp files are not cleaned up proactively**; the OS reclaims them.
+- **Products stay with the workspace and are never cleaned up proactively**: downscaled images and Markdown copies live in `<workspace>/.dsh-convert/`; delete the folder if you do not want them, it is regenerated next time.
 
 ## Development
 

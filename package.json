@@ -1,6 +1,6 @@
 {
   "name": "dsh-auto-convert",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "description": "读图、读文档之前先把文件处理成能读的样子：超大图降采样、BMP/TIFF 转 PNG、docx/xlsx/pptx/pdf/csv/html 就地转成 Markdown，一轮对话就出结论。",
   "license": "MIT",

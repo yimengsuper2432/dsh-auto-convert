@@ -79,7 +79,7 @@ flowchart LR
 1. **挂的是宿主 `tools/execute` 环绕钩子**，不是某个具体工具：图片对 `read_image`、`vision_*`、`read` 都生效，文档只在 `read` 拿到路径时换成 Markdown（`write`、`pwsh` 这类工具仍然收到原路径）。工具本身不知道文件被换过，它只收到一个更小、或者已经是 Markdown 的副本。
 2. **按字节认格式**（PNG / JPEG / GIF / WebP / BMP / TIFF / PDF / OOXML zip），不看扩展名——改过名的图也认得出；认不出的直接放行，不猜、不拦。
 3. **递归扫参数里的绝对路径**（对象/数组最多 5 层、一次最多 8 个文件），只处理存在、非空、真的是图的文件；`attachmentIds: ["sha256:…"]` 先换成附件库里的真实文件再走同一流程。
-4. **图片降采样**用 profile 里已经装好的 `jimp`，等比缩放，产物按「源文件 + mtime + 目标长边」缓存在系统临时目录。
+4. **图片降采样**用 profile 里已经装好的 `jimp`，等比缩放；产物写进**会话工作区的 `.dsh-convert/`**。文件名跟着源文件走：只换格式就沿用原名（`pic.bmp` → `pic.png`），降过分辨率加 `_small`（`photo.jpg` → `photo_small.jpg`）。
 5. **文档转换是零依赖的**：OOXML 就是 zip，用 `node:zlib` 解开后按 `document.xml` / `sheet*.xml` / `slide*.xml` 取结构；PDF 只捞文字层，遇到 CID 字体就解析 ToUnicode CMap 把字形码位还原成文字。不联网、不装 Python、不调 Office。
 6. **同一轮自动重试**：只对「压过图、后端还是说太大」的 `read_image` / `vision_*` 生效，用 1280 px 再跑一次。文档不重试，读不出来就原样报错。
 7. **上传那道门也包住了**：附件入库前按字节核对类型，标签错的改标签、BMP / TIFF 就地转 PNG、解不开的原样放行。
@@ -127,7 +127,7 @@ dsh plugin --profile desktop add github:yimengsuper2432/dsh-auto-convert
 - **扫描件 PDF 不 OCR**：没有文字层的 PDF 转不出内容，插件会放行原文；要 OCR 得上专用插件。
 - **老 Office 二进制（.doc/.xls/.ppt）不支持**：那是 OLE2 复合文档，纯 Node 解不干净，交给工具自己报错。
 - **只搬文字与结构**：docx 里的图片、PDF 里的图表、公式都不会提取。
-- **临时文件不主动清理**：压过的图和转好的 Markdown 落在系统临时目录里，交给操作系统回收。
+- **产物跟着工作区走、不主动清理**：压过的图、转好的 Markdown 都留在 `<工作区>/.dsh-convert/` 里，方便翻看；不想要了整个目录删掉即可，下一轮会重新生成。
 
 ## 开发
 
